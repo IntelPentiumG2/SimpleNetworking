@@ -347,7 +347,15 @@ namespace SimpleNetworking.Server
         {
             if (disposing)
             {
-                // Dispose managed resources
+                listenSocket.Dispose();
+
+                if (connectedSockets != null)
+                {
+                    foreach (Socket socket in connectedSockets)
+                    {
+                        socket.Dispose();
+                    }
+                }
             }
         }
     }
