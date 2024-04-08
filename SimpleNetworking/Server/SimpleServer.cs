@@ -38,7 +38,6 @@ namespace SimpleNetworking.Server
         /// <param name="index">The index of the client to check</param>
         /// <returns>true if connected, otherwise false</returns>
         public bool IsTcpConnected(int index) => Protocol == Protocol.Tcp && connectedSockets![index].Connected;
-
         /// <summary>
         /// Gets if the server with the specified remote endpoint is connected
         /// </summary>
@@ -135,6 +134,27 @@ namespace SimpleNetworking.Server
         }
 
         /// <summary>
+        /// Sends a message to a specific client asynchronously
+        /// </summary>
+        /// <param name="message">The data to send</param>
+        /// <param name="remoteEndPoint">The IPEndPoint to send the data to</param>
+        /// <returns>A task sending the data</returns>
+        public async Task SendToAsync(byte[] message, IPEndPoint remoteEndPoint)
+        {
+            switch (Protocol)
+            {
+                case Protocol.Tcp:
+                    message = [.. message, .. eomBytes];
+                    await GetTcpSocketByEndPoint(remoteEndPoint).SendAsync(message);
+                    break;
+                case Protocol.Udp:
+                    message = [sendSequenceNumber++, .. message, .. eomBytes];
+                    await listenSocket.SendToAsync(message, remoteEndPoint);
+                    break;
+            }
+        }
+
+        /// <summary>
         /// Sends a message to all connected clients
         /// </summary>
         /// <param name="message">The data to send</param>
@@ -143,10 +163,9 @@ namespace SimpleNetworking.Server
             if (Protocol == Protocol.Udp)
             {
                 byte[] messageWithEom = [sendSequenceNumber++, .. message, .. eomBytes];
-                foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints)
+                foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
                 {
                     listenSocket.SendTo(messageWithEom, remoteEndPoint);
-                    Debug.WriteLine("Message send to clients");
                 }
             }
             else if (Protocol == Protocol.Tcp)
@@ -155,6 +174,32 @@ namespace SimpleNetworking.Server
                 {
                     socket.Send([.. message, .. eomBytes]);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Sends a message to all connected clients asynchronously
+        /// </summary>
+        /// <param name="message">The data to send</param>
+        /// <returns>A task sending the message</returns>
+        public async Task SendToAllAsync(byte[] message)
+        {
+            switch (Protocol)
+            {
+                case Protocol.Udp:
+                    message = [sendSequenceNumber++, .. message, .. eomBytes];
+                    foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
+                    {
+                        await listenSocket.SendToAsync(message, remoteEndPoint);
+                    }
+                    break;
+                case Protocol.Tcp:
+                    message = [.. message, .. eomBytes];
+                    foreach (Socket socket in connectedSockets!)
+                    {
+                        await socket.SendAsync(message);
+                    }
+                    break;
             }
         }
 
