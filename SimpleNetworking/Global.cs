@@ -21,11 +21,11 @@
     public static class Extension
     {
         /// <summary>
-        /// Searches for a pattern in a byte array. Returns the index of the first occurence of the pattern.
+        /// Searches for a pattern in a byte array. Returns the index of the first occurrence of the pattern.
         /// </summary>
         /// <param name="src">The array to search through</param>
         /// <param name="pattern">The pattern to search for</param>
-        /// <returns>The index of the first occurence</returns>
+        /// <returns>The index of the first occurrence</returns>
         public static int Search(this byte[] src, byte[] pattern)
         {
             if (pattern.Length == 0)

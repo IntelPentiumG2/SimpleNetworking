@@ -12,8 +12,9 @@ namespace SimpleNetworking.Packets
         /// Returns the type of a packet from a json string.
         /// </summary>
         /// <param name="json">The json string to get the type from.</param>
+        /// <param name="options">Optional JsonSerializer options</param>
         /// <returns>The type of the packet as a string.</returns>
-        /// <exception cref="ArgumentException">Thrown if the deserialization failes.</exception>
+        /// <exception cref="ArgumentException">Thrown if the deserialization fails.</exception>
         public static string GetType(string json, JsonSerializerOptions? options = null)
         {
             return JsonSerializer.Deserialize<JsonObject>(json, options)?["Type"]?.ToString() ?? throw new ArgumentException("Failed to get packet type. Json invalid.");
@@ -23,8 +24,9 @@ namespace SimpleNetworking.Packets
         /// Returns the guid of a packet from a json string.
         /// </summary>
         /// <param name="json"> The json string to get the guid from. </param>
+        /// <param name="options">Optional JsonSerializer options</param>
         /// <returns>The guid of the packet as a guid,</returns>
-        /// <exception cref="ArgumentException">Thrown if the deserialization failes.</exception>
+        /// <exception cref="ArgumentException">Thrown if the deserialization fails.</exception>
         public static Guid GetGuid(string json, JsonSerializerOptions? options = null)
         {
             return Guid.Parse(JsonSerializer.Deserialize<JsonObject>(json, options)?["Guid"]?.ToString() ?? throw new ArgumentException("Failed to get packet guid. Json invalid."));
@@ -37,7 +39,13 @@ namespace SimpleNetworking.Packets
     /// <typeparam name="T">The extending class</typeparam>
     public abstract class Packet<T> where T : Packet<T>
     {
+        /// <summary>
+        /// Gets the Type of the Packet
+        /// </summary>
         public string Type { get; set; } = typeof(T).Name;
+        /// <summary>
+        /// Gets the Guid of the Packet
+        /// </summary>
         public Guid Guid { get; set; } = Guid.NewGuid();
 
         /// <summary>

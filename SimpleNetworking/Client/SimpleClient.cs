@@ -88,7 +88,7 @@ namespace SimpleNetworking.Client
         /// <param name="protocol">The protocol to use</param>
         /// <param name="port">The port to connect to</param>
         /// <param name="ip">The ip to connect to</param>
-        /// <exception cref="ArgumentException">Throws if an invalid protcol was given</exception>
+        /// <exception cref="ArgumentException">Throws if an invalid protocol was given</exception>
         /// <exception cref="FormatException">Throws if the ip is not valid</exception>"
         public SimpleClient(Protocol protocol, int port, string ip)
         {
@@ -216,7 +216,7 @@ namespace SimpleNetworking.Client
         /// </summary>
         /// <param name="message">The message to send as a string</param>
         /// <returns>A task sending the message</returns>
-        /// <exception cref="InvalidOperationException">Throws if the client is not cconnected to a host</exception>
+        /// <exception cref="InvalidOperationException">Throws if the client is not connected to a host</exception>
         public async Task SendAsync(string message)
         {
             if (!IsConnected) throw new InvalidOperationException("Client is not connected to a host.");
