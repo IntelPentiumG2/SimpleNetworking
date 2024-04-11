@@ -31,7 +31,7 @@ namespace SimpleNetworking.Client
         /// <summary>
         /// Gets the local endpoint of the client.
         /// </summary>
-        public IPEndPoint? LocalEndPoint { get; }
+        public IPEndPoint? LocalEndPoint { get; private set; }
         /// <summary>
         /// Gets the buffer size for reading messages.
         /// </summary>
@@ -154,6 +154,7 @@ namespace SimpleNetworking.Client
         public void Connect(CancellationToken token)
         {
             client.Connect(RemoteEndPoint);
+            LocalEndPoint = client.LocalEndPoint as IPEndPoint;
             OnConnectionOpened?.Invoke(new ClientConnectedEventArgs(client, DateTime.Now));
             Task.Run(() => StartListeningBytes(token), token);
         }
