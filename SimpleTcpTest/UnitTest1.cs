@@ -139,6 +139,7 @@ namespace SimpleTcpTest
             {
                 client.Send("Hello, World!");
                 server.SendToAll("Hello, World!");
+                server.SendTo("Hello, World!", client.LocalEndPoint);
             };
 
             client.Connect(new CancellationTokenSource().Token);

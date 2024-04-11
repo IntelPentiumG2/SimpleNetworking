@@ -28,7 +28,7 @@ namespace SimpleNetworking.Server
             if (Protocol != Protocol.Tcp)
                 throw new InvalidOperationException("This method is only available for TCP servers.");
 
-            return connectedSockets!.Where(socket => socket.Connected == true).First(s => s.RemoteEndPoint == iPEnd);
+            return connectedSockets!.First(s => s.Connected && ((IPEndPoint)s.RemoteEndPoint!).Address.Equals(iPEnd.Address));
         }
 
         /// <summary>
