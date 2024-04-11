@@ -15,6 +15,7 @@ namespace SimpleNetworking.Server
         private readonly Socket listenSocket; private readonly int maxConnections;
         private byte sendSequenceNumber = 1;
         private readonly IPEndPoint localEndPoint;
+        private readonly Dictionary<EndPoint, byte>? clientLastSequenceNumbers;
 
         private readonly List<Socket>? connectedSockets;
         //TODO: refactor code to use a array of IPEndPoint instead of a list
@@ -91,6 +92,7 @@ namespace SimpleNetworking.Server
                     break;
                 case Protocol.Udp:
                     udpRemoteEndPoints = [];
+                    clientLastSequenceNumbers = [];
                     listenSocket = new Socket(ip?.AddressFamily ?? AddressFamily.Unspecified, SocketType.Dgram, ProtocolType.Udp);
                     break;
                 default:
@@ -367,7 +369,6 @@ namespace SimpleNetworking.Server
         private async Task ListenUdp(CancellationToken token)
         {
             List<byte> truncationBuffer = [];
-            byte lastSequenceNumber = 0;
 
             while (!token.IsCancellationRequested)
             {
@@ -381,10 +382,12 @@ namespace SimpleNetworking.Server
                 if (!udpRemoteEndPoints!.Contains((IPEndPoint)result.RemoteEndPoint))
                 {
                     udpRemoteEndPoints.Add((IPEndPoint)result.RemoteEndPoint);
+                    clientLastSequenceNumbers!.Add(result.RemoteEndPoint, 0);
                     OnClientConnected?.Invoke(new ClientConnectedEventArgs(listenSocket, DateTime.Now));
                 }
 
                 receiveBuffer = receiveBuffer[..received];
+                byte lastSequenceNumber = clientLastSequenceNumbers![result.RemoteEndPoint];
 
                 if (truncationBuffer.Count > 0)
                 {
@@ -416,7 +419,7 @@ namespace SimpleNetworking.Server
                         continue;
                     }
 
-                    lastSequenceNumber = sequenceNumber;
+                    clientLastSequenceNumbers![result.RemoteEndPoint] = sequenceNumber;
 
                     // Invoke message received event
                     OnMessageReceived?.Invoke(new MessageReceivedEventArgs(message.ToArray(), (IPEndPoint)result.RemoteEndPoint));
