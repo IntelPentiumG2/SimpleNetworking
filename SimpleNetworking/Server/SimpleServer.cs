@@ -120,6 +120,13 @@ namespace SimpleNetworking.Server
         /// </summary>
         /// <param name="message">The data to send</param>
         /// <param name="remoteEndPoint">The IPEndPoint to send the data to</param>
+        public void SendTo(string message, IPEndPoint remoteEndPoint) => SendTo(Encoding.UTF8.GetBytes(message), remoteEndPoint);
+
+        /// <summary>
+        /// Sends a message to a specific client
+        /// </summary>
+        /// <param name="message">The data to send</param>
+        /// <param name="remoteEndPoint">The IPEndPoint to send the data to</param>
         public void SendTo(byte[] message, IPEndPoint remoteEndPoint)
         {
             if (Protocol == Protocol.Udp)
@@ -132,6 +139,14 @@ namespace SimpleNetworking.Server
                 GetTcpSocketByEndPoint(remoteEndPoint).Send([.. message, .. eomBytes]);
             }
         }
+
+        /// <summary>
+        /// Sends a message to a specific client asynchronously
+        /// </summary>
+        /// <param name="message">The data to send</param>
+        /// <param name="remoteEndPoint">The IPEndPoint to send the data to</param>
+        /// <returns>A task sending the data</returns>
+        public async Task SendToAsync(string message, IPEndPoint remoteEndPoint) => await SendToAsync(Encoding.UTF8.GetBytes(message), remoteEndPoint);
 
         /// <summary>
         /// Sends a message to a specific client asynchronously
@@ -158,6 +173,12 @@ namespace SimpleNetworking.Server
         /// Sends a message to all connected clients
         /// </summary>
         /// <param name="message">The data to send</param>
+        public void SendToAll(string message) => SendToAll(Encoding.UTF8.GetBytes(message));
+
+        /// <summary>
+        /// Sends a message to all connected clients
+        /// </summary>
+        /// <param name="message">The data to send</param>
         public void SendToAll(byte[] message)
         {
             if (Protocol == Protocol.Udp)
@@ -176,6 +197,13 @@ namespace SimpleNetworking.Server
                 }
             }
         }
+
+        /// <summary>
+        /// Sends a message to all connected clients asynchronously
+        /// </summary>
+        /// <param name="message">The data to send</param>
+        /// <returns>A task sending the message</returns>
+        public async Task SendToAllAsync(string message) => await SendToAllAsync(Encoding.UTF8.GetBytes(message));
 
         /// <summary>
         /// Sends a message to all connected clients asynchronously
@@ -208,6 +236,13 @@ namespace SimpleNetworking.Server
         /// </summary>
         /// <param name="data">The message to send</param>
         /// <param name="ipendpoints">The ipendpoints to exclude</param>
+        public void SendToExcept(string data, IPEndPoint[] ipendpoints) => SendToExcept(Encoding.UTF8.GetBytes(data), ipendpoints);
+
+        /// <summary>
+        /// Sends a message to all connected clients except the ones specified
+        /// </summary>
+        /// <param name="data">The message to send</param>
+        /// <param name="ipendpoints">The ipendpoints to exclude</param>
         public void SendToExcept(byte[] data, IPEndPoint[] ipendpoints)
         {
             if (Protocol == Protocol.Udp)
@@ -232,6 +267,14 @@ namespace SimpleNetworking.Server
                 }
             }
         }
+
+        /// <summary>
+        /// Sends a message to all connected clients except the ones specified asynchronously
+        /// </summary>
+        /// <param name="data">The message to send</param>
+        /// <param name="ipendpoints">The ipendpoints to exclude</param>
+        /// <returns></returns>
+        public async Task SendToExceptAsync(string data, IPEndPoint[] ipendpoints) => await SendToExceptAsync(Encoding.UTF8.GetBytes(data), ipendpoints);
 
         /// <summary>
         /// Sends a message to all connected clients except the ones specified asynchronously
