@@ -14,7 +14,10 @@ namespace SimpleNetworking.Server
         private readonly byte[] eomBytes = Encoding.UTF8.GetBytes("<EOM>");
         private readonly Socket listenSocket; private readonly int maxConnections;
         private byte sendSequenceNumber = 1;
-        private readonly IPEndPoint localEndPoint;
+        /// <summary>
+        /// Gets the local endpoint of the server
+        /// </summary>
+        public readonly IPEndPoint LocalEndPoint;
         private readonly Dictionary<EndPoint, byte>? clientLastSequenceNumbers;
 
         private readonly List<Socket>? connectedSockets;
@@ -82,7 +85,7 @@ namespace SimpleNetworking.Server
         {
             Protocol = protocol;
             this.maxConnections = maxConnections > 0 ? maxConnections : 1;
-            localEndPoint = new IPEndPoint(ip ?? IPAddress.Any, port);
+            LocalEndPoint = new IPEndPoint(ip ?? IPAddress.Any, port);
 
             switch (protocol)
             {
@@ -99,7 +102,7 @@ namespace SimpleNetworking.Server
                     throw new ArgumentException("Invalid protocol");
             }
 
-            listenSocket.Bind(localEndPoint);
+            listenSocket.Bind(LocalEndPoint);
         }
 
         /// <summary>
@@ -373,7 +376,7 @@ namespace SimpleNetworking.Server
             while (!token.IsCancellationRequested)
             {
                 byte[] receiveBuffer = new byte[listenSocket.ReceiveBufferSize];
-                SocketReceiveFromResult result = await listenSocket.ReceiveFromAsync(receiveBuffer, SocketFlags.None, localEndPoint, token);
+                SocketReceiveFromResult result = await listenSocket.ReceiveFromAsync(receiveBuffer, SocketFlags.None, LocalEndPoint, token);
                 int received = result.ReceivedBytes;
 
                 if (result.ReceivedBytes == 0)

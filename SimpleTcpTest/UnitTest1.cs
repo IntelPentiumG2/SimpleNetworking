@@ -1,7 +1,10 @@
 using NUnit.Framework;
+using SimpleNetworking.Client;
 using SimpleNetworking.Packets;
+using SimpleNetworking.Server;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Net;
 using System.Numerics;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
@@ -110,6 +113,35 @@ namespace SimpleTcpTest
                 Assert.That(deserialized.Length, Is.EqualTo(packet.Length));
                 Assert.That(deserialized.Guid, Is.Not.EqualTo(Guid.Empty));
             });
+        }
+
+        [Test]
+        public void TestTcpConnection()
+        {
+            using SimpleServer server = new SimpleServer(SimpleNetworking.Protocol.Tcp, 1, 12345, IPAddress.Loopback);
+            using SimpleClient client = new SimpleClient(SimpleNetworking.Protocol.Tcp, 12345, IPAddress.Loopback);
+
+            server.OnMessageReceived += (e) =>
+            {
+                Assert.That(e.MessageString, Is.EqualTo("Hello, World!"));
+                Assert.That(e.Sender, Is.EqualTo(client.LocalEndPoint));
+            };
+
+            server.StartListen(new CancellationTokenSource().Token);
+
+            client.OnMessageReceived += (e) =>
+            {
+                Assert.That(e.MessageString, Is.EqualTo("Hello, World!"));
+                Assert.That(e.Sender, Is.EqualTo(server.LocalEndPoint));
+            };
+
+            client.OnConnectionOpened += (e) =>
+            {
+                client.Send("Hello, World!");
+                server.SendToAll("Hello, World!");
+            };
+
+            client.Connect(new CancellationTokenSource().Token);
         }
     }
 }
