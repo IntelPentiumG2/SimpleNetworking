@@ -17,7 +17,7 @@ namespace SimpleNetworking.Server
         private readonly IPEndPoint localEndPoint;
 
         private readonly List<Socket>? connectedSockets;
-        //TODO: refacto code to use a array of IPEndPoint instead of a list
+        //TODO: refactor code to use a array of IPEndPoint instead of a list
         private readonly List<IPEndPoint>? udpRemoteEndPoints;
         private Socket GetTcpSocketByEndPoint(IPEndPoint iPEnd)
         {
@@ -73,7 +73,7 @@ namespace SimpleNetworking.Server
         /// Creates a new instance of the SimpleServer class
         /// </summary>
         /// <param name="protocol">The protocol to use</param>
-        /// <param name="maxConnections">The max amounts of clients allowed to conenct</param>
+        /// <param name="maxConnections">The max amounts of clients allowed to connect</param>
         /// <param name="port">The port to listen on</param>
         /// <param name="ip">The ip to listen on</param>
         /// <exception cref="ArgumentException"></exception>
@@ -200,6 +200,68 @@ namespace SimpleNetworking.Server
                         await socket.SendAsync(message);
                     }
                     break;
+            }
+        }
+
+        /// <summary>
+        /// Sends a message to all connected clients except the ones specified
+        /// </summary>
+        /// <param name="data">The message to send</param>
+        /// <param name="ipendpoints">The ipendpoints to exclude</param>
+        public void SendToExcept(byte[] data, IPEndPoint[] ipendpoints)
+        {
+            if (Protocol == Protocol.Udp)
+            {
+                byte[] messageWithEom = [sendSequenceNumber++, .. data, .. eomBytes];
+                foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
+                {
+                    if (!ipendpoints.Contains(remoteEndPoint))
+                    {
+                        listenSocket.SendTo(messageWithEom, remoteEndPoint);
+                    }
+                }
+            }
+            else if (Protocol == Protocol.Tcp)
+            {
+                foreach (Socket socket in connectedSockets!)
+                {
+                    if (!Array.Exists(ipendpoints, ep => ep.Address == (socket.RemoteEndPoint as IPEndPoint)!.Address))
+                    {
+                        socket.Send([.. data, .. eomBytes]);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Sends a message to all connected clients except the ones specified asynchronously
+        /// </summary>
+        /// <param name="data">The message to send</param>
+        /// <param name="ipendpoints">The ipendpoints to exclude</param>
+        /// <returns></returns>
+        public async Task SendToExceptAsync(byte[] data, IPEndPoint[] ipendpoints)
+        {
+            if (Protocol == Protocol.Udp)
+            {
+                byte[] messageWithEom = [sendSequenceNumber++, .. data, .. eomBytes];
+                foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
+                {
+                    if (!ipendpoints.Contains(remoteEndPoint))
+                    {
+                        await listenSocket.SendToAsync(messageWithEom, remoteEndPoint);
+                    }
+                }
+            }
+            else if (Protocol == Protocol.Tcp)
+            {
+                foreach (Socket socket in connectedSockets!)
+                {
+                    if (!Array.Exists(ipendpoints, ep => ep.Address == (socket.RemoteEndPoint as IPEndPoint)!.Address))
+                    {
+                        byte[] message = [.. data, .. eomBytes];
+                        await socket.SendAsync(message);
+                    }
+                }
             }
         }
 
