@@ -115,7 +115,7 @@ namespace SimpleNetworking.Server
             _ = Protocol switch
             {
                 Protocol.Tcp => ConnectToClients(token),
-                Protocol.Udp => ListenUdp(token),
+                Protocol.Udp => Listen(listenSocket, token),
                 _ => throw new ArgumentException("Invalid protocol"),
             };
         }
@@ -323,18 +323,40 @@ namespace SimpleNetworking.Server
                 connectedSockets!.Add(socket);
                 OnClientConnected?.Invoke(new ClientConnectedEventArgs(socket, DateTime.Now));
 
-                _ = Task.Run(() => ListenTcp(socket, token), token);
+                _ = Task.Run(() => Listen(socket, token), token);
             }
         }
 
-        private async Task ListenTcp(Socket socket, CancellationToken token)
+        private async Task Listen(Socket socket, CancellationToken token)
         {
             List<byte> truncationBuffer = [];
 
             while (!token.IsCancellationRequested)
             {
                 byte[] receiveBuffer = new byte[socket.ReceiveBufferSize];
-                int received = await socket.ReceiveAsync(receiveBuffer, SocketFlags.None, token);
+                int received;
+                SocketReceiveFromResult? result = null;
+
+                if (socket.ProtocolType == ProtocolType.Tcp)
+                {
+                    received = await socket.ReceiveAsync(receiveBuffer, SocketFlags.None, token);
+                }
+                else if (socket.ProtocolType == ProtocolType.Udp)
+                {
+                    result = await socket.ReceiveFromAsync(receiveBuffer, SocketFlags.None, LocalEndPoint, token);
+                    received = result.Value.ReceivedBytes;
+
+                    if (!udpRemoteEndPoints!.Contains((IPEndPoint)result.Value.RemoteEndPoint))
+                    {
+                        udpRemoteEndPoints.Add((IPEndPoint)result.Value.RemoteEndPoint);
+                        clientLastSequenceNumbers!.Add(result.Value.RemoteEndPoint, 0);
+                        OnClientConnected?.Invoke(new ClientConnectedEventArgs(listenSocket, DateTime.Now));
+                    }
+                }
+                else 
+                {
+                    throw new InvalidOperationException("Invalid protocol type");
+                }
 
                 if (received == 0)
                     break;
@@ -354,78 +376,34 @@ namespace SimpleNetworking.Server
                 {
                     Memory<byte> message = buffer[..eomIndex];
 
-                    // Invoke message received event
-                    OnMessageReceived?.Invoke(new MessageReceivedEventArgs(message.ToArray(), (IPEndPoint)socket.RemoteEndPoint!));
-                    buffer = buffer[(eomIndex + eomBytes.Length)..];
-                }
-
-                if (!buffer.IsEmpty)
-                {
-                    truncationBuffer.AddRange(buffer.ToArray());
-                    Debug.WriteLine($"Truncated on server: {Encoding.UTF8.GetString(truncationBuffer.ToArray())}.");
-                }
-            }
-
-            OnClientDisconnected?.Invoke(new ClientDisconnectedEventArgs(socket, DateTime.Now, "Cancellation requested"));
-        }
-
-        private async Task ListenUdp(CancellationToken token)
-        {
-            List<byte> truncationBuffer = [];
-
-            while (!token.IsCancellationRequested)
-            {
-                byte[] receiveBuffer = new byte[listenSocket.ReceiveBufferSize];
-                SocketReceiveFromResult result = await listenSocket.ReceiveFromAsync(receiveBuffer, SocketFlags.None, LocalEndPoint, token);
-                int received = result.ReceivedBytes;
-
-                if (result.ReceivedBytes == 0)
-                    break;
-
-                if (!udpRemoteEndPoints!.Contains((IPEndPoint)result.RemoteEndPoint))
-                {
-                    udpRemoteEndPoints.Add((IPEndPoint)result.RemoteEndPoint);
-                    clientLastSequenceNumbers!.Add(result.RemoteEndPoint, 0);
-                    OnClientConnected?.Invoke(new ClientConnectedEventArgs(listenSocket, DateTime.Now));
-                }
-
-                receiveBuffer = receiveBuffer[..received];
-                byte lastSequenceNumber = clientLastSequenceNumbers![result.RemoteEndPoint];
-
-                if (truncationBuffer.Count > 0)
-                {
-                    receiveBuffer = [.. truncationBuffer, .. receiveBuffer];
-                    truncationBuffer.Clear();
-                }
-
-                Memory<byte> buffer = receiveBuffer.AsMemory(0, receiveBuffer.Length);
-
-                int eomIndex;
-                while ((eomIndex = buffer.Span.IndexOf(eomBytes)) >= 0)
-                {
-                    Memory<byte> message = buffer[..eomIndex];
-
-                    byte sequenceNumber = message.Span[0];
-                    message = message[1..];
-
-                    if (sequenceNumber != lastSequenceNumber + 1
-                        && !(sequenceNumber == 0 && lastSequenceNumber == 255))
+                    if (socket.ProtocolType == ProtocolType.Udp)
                     {
-                        Debug.WriteLine($"Packet loss detected. Client skipping packet {sequenceNumber}. " +
-                            $"Waiting for packet: {lastSequenceNumber + 1}");
+                        byte lastSequenceNumber = clientLastSequenceNumbers![result!.Value.RemoteEndPoint];
+                        byte sequenceNumber = message.Span[0];
+                        message = message[1..];
 
-                        buffer = buffer[(eomIndex + eomBytes.Length)..];
+                        if (sequenceNumber != lastSequenceNumber + 1
+                            && !(sequenceNumber == 0 && lastSequenceNumber == 255))
+                        {
+                            Debug.WriteLine($"Packet loss detected. Client skipping packet {sequenceNumber}. " +
+                                $"Waiting for packet: {lastSequenceNumber + 1}");
 
-                        if (sequenceNumber > lastSequenceNumber)
-                            lastSequenceNumber = sequenceNumber;
+                            buffer = buffer[(eomIndex + eomBytes.Length)..];
 
-                        continue;
+                            continue;
+                        }
+
+                        clientLastSequenceNumbers![result.Value.RemoteEndPoint] = sequenceNumber;
                     }
 
-                    clientLastSequenceNumbers![result.RemoteEndPoint] = sequenceNumber;
+                    IPEndPoint endPoint = socket.ProtocolType switch {
+                        ProtocolType.Tcp => (IPEndPoint)socket.RemoteEndPoint!,
+                        ProtocolType.Udp => (IPEndPoint)result!.Value.RemoteEndPoint,
+                        _ => throw new InvalidOperationException("Invalid protocol type")
+                    };
 
                     // Invoke message received event
-                    OnMessageReceived?.Invoke(new MessageReceivedEventArgs(message.ToArray(), (IPEndPoint)result.RemoteEndPoint));
+                    OnMessageReceived?.Invoke(new MessageReceivedEventArgs(message.ToArray(), endPoint));
                     buffer = buffer[(eomIndex + eomBytes.Length)..];
                 }
 
@@ -436,9 +414,6 @@ namespace SimpleNetworking.Server
                     Debug.WriteLine($"Truncated on server: {Encoding.UTF8.GetString(truncationBuffer.ToArray())}.");
                 }
             }
-
-            //TODO: Give proper reason for stopping
-            OnClientDisconnected?.Invoke(new ClientDisconnectedEventArgs(listenSocket, DateTime.Now, "Something went wrong"));
         }
 
         /// <summary>
