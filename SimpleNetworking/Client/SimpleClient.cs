@@ -173,23 +173,7 @@ namespace SimpleNetworking.Client
        /// <param name="message">The message to send as string</param>
        /// <exception cref="InvalidOperationException">Throws if the client is not connected to a host</exception>
         /// <exception cref="ArgumentOutOfRangeException"></exception>
-        public void Send(string message)
-        {
-            if (!IsConnected) throw new InvalidOperationException("Client is not connected to a host.");
-
-            // TODO: Add length to the message after the sequence number to ease truncation checks
-            // to avoid buffer.Search calls
-            byte[] messageBytes = Encoding.UTF8.GetBytes(message.Trim() + eom);
-            byte[] data = Protocol switch
-            {
-                Protocol.Tcp => messageBytes,
-                Protocol.Udp => [sendingSequenceNumber++, .. messageBytes],
-                _ => throw new InvalidOperationException("Invalid protocol"),
-            };
-            if (data.Length > SendBufferSize)
-                throw new ArgumentOutOfRangeException(nameof(message), $"Message is too large to send in one packet. {data.Length - SendBufferSize} bytes over limit.");
-            client.Send(data);
-        }
+        public void Send(string message) => Send(Encoding.UTF8.GetBytes(message.Trim()));
 
         /// <summary>
         /// Sends a message to the connected host.
@@ -218,21 +202,7 @@ namespace SimpleNetworking.Client
         /// <param name="message">The message to send as a string</param>
         /// <returns>A task sending the message</returns>
         /// <exception cref="InvalidOperationException">Throws if the client is not connected to a host</exception>
-        public async Task SendAsync(string message)
-        {
-            if (!IsConnected) throw new InvalidOperationException("Client is not connected to a host.");
-
-            byte[] messageBytes = Encoding.UTF8.GetBytes(message.Trim() + eom);
-            byte[] data = Protocol switch
-            {
-                Protocol.Tcp => messageBytes,
-                Protocol.Udp => [sendingSequenceNumber++, .. messageBytes],
-                _ => throw new InvalidOperationException("Invalid protocol"),
-            };
-            if (data.Length > SendBufferSize)
-                throw new ArgumentOutOfRangeException(nameof(message), $"Message is too large to send in one packet. {data.Length - SendBufferSize} bytes over limit.");
-            await client.SendAsync(data);
-        }
+        public async Task SendAsync(string message) => await SendAsync(Encoding.UTF8.GetBytes(message.Trim()));
 
         /// <summary>
         /// Sends a message to the connected host asynchronously.
