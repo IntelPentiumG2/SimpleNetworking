@@ -11,15 +11,34 @@ namespace SimpleNetworking.Server
     /// </summary>
     public class SimpleServer : IDisposable
     {
+        /// <summary>
+        /// Byte array representing the end of message
+        /// </summary>
         private readonly byte[] eomBytes = Encoding.UTF8.GetBytes("<EOM>");
-        private readonly Socket listenSocket; private readonly int maxConnections;
+        /// <summary>
+        /// The default listening socket
+        /// </summary>
+        private readonly Socket listenSocket;
+        /// <summary>
+        /// The max amount of connections allowed
+        /// </summary>
+        private readonly int maxConnections;
+        /// <summary>
+        /// The sequence number to send with the message
+        /// </summary>
         private byte sendSequenceNumber = 1;
         /// <summary>
         /// Gets the local endpoint of the server
         /// </summary>
         public readonly IPEndPoint LocalEndPoint;
+        /// <summary>
+        /// Dictionary containing the last sequence number received from a specific client
+        /// </summary>
         private readonly Dictionary<EndPoint, byte>? clientLastSequenceNumbers;
 
+        /// <summary>
+        /// The list of connected TCP sockets
+        /// </summary>
         private readonly List<Socket>? connectedSockets;
         //TODO: refactor code to use a array of IPEndPoint instead of a list
         private readonly List<IPEndPoint>? udpRemoteEndPoints;
@@ -313,6 +332,11 @@ namespace SimpleNetworking.Server
             }
         }
 
+        /// <summary>
+        /// Awaits incoming tcp connections, adds them to the connectedSockets list and starts listening for messages
+        /// </summary>
+        /// <param name="token">The cancellation token to cancel listening for connections</param>
+        /// <returns>A task listening for incoming tcp connections</returns>
         private async Task ConnectToClients(CancellationToken token)
         {
             listenSocket.Listen(maxConnections);
@@ -327,6 +351,13 @@ namespace SimpleNetworking.Server
             }
         }
 
+        /// <summary>
+        /// Listens for incoming messages on the specified socket
+        /// </summary>
+        /// <param name="socket">The socket to listen on</param>
+        /// <param name="token">The cancellation token</param>
+        /// <returns>A task listening for messages</returns>
+        /// <exception cref="InvalidOperationException"></exception>
         private async Task Listen(Socket socket, CancellationToken token)
         {
             List<byte> truncationBuffer = [];
