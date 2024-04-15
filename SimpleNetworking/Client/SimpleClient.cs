@@ -17,6 +17,10 @@ namespace SimpleNetworking.Client
         private readonly byte[] eomBytes = Encoding.UTF8.GetBytes(eom);
 
         /// <summary>
+        /// Gets if the handshake was successful.
+        /// </summary>
+        public bool HandshakeSuccessful { get; private set; } = false;
+        /// <summary>
         /// Gets if the client is connected to a host.
         /// </summary>
         public bool IsConnected => client.Connected;
@@ -155,8 +159,12 @@ namespace SimpleNetworking.Client
         {
             client.Connect(RemoteEndPoint);
             LocalEndPoint = client.LocalEndPoint as IPEndPoint;
-            OnConnectionOpened?.Invoke(new ClientConnectedEventArgs(client, DateTime.Now));
-            Task.Run(() => StartListeningBytes(token), token);
+            if (Protocol == Protocol.Udp)
+            {
+                HandshakeSuccessful = true;
+                OnConnectionOpened?.Invoke(new ClientConnectedEventArgs(client, DateTime.Now));
+            }
+            _ = StartListeningBytes(token);
         }
 
         /// <summary>
@@ -184,6 +192,7 @@ namespace SimpleNetworking.Client
         public void Send(byte[] data)
         {
             if (!IsConnected) throw new InvalidOperationException("Client is not connected to a host.");
+            if (!HandshakeSuccessful) return;
 
             data = Protocol switch
             {
@@ -213,6 +222,7 @@ namespace SimpleNetworking.Client
         public async Task SendAsync(byte[] data)
         {
             if (!IsConnected) throw new InvalidOperationException("Client is not connected to a host.");
+            if (!HandshakeSuccessful) return;
 
             data = Protocol switch
             {
@@ -248,6 +258,13 @@ namespace SimpleNetworking.Client
 
                     if (received == 0)
                         break;
+
+                    if (!HandshakeSuccessful && Protocol == Protocol.Tcp)
+                    {
+                        HandshakeSuccessful = true;
+                        OnConnectionOpened?.Invoke(new ClientConnectedEventArgs(client, DateTime.Now));
+                        continue;
+                    }
 
                     receiveBuffer = receiveBuffer[..received];
 

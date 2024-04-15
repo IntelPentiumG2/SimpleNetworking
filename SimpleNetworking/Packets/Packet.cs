@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Diagnostics;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace SimpleNetworking.Packets
@@ -66,6 +67,27 @@ namespace SimpleNetworking.Packets
         public static T Deserialize(string json)
         {
             return JsonSerializer.Deserialize<T>(json) ?? throw new ArgumentException("Failed to deserialize packet. Json invalid.");
+        }
+
+        /// <summary>
+        /// Trys to deserialize a json string to a packet.
+        /// </summary>
+        /// <param name="json">The json string to deserialize</param>
+        /// <param name="packet">The deserialized packet</param>
+        /// <returns>true if it could be deserialized, otherwise false</returns>
+        public static bool TryDeserialize(string json, out T? packet)
+        {
+
+            try
+            {
+                packet = Deserialize(json);
+                return true;
+            }
+            catch
+            {
+                packet = null;
+                return false;
+            }
         }
     }
 }
