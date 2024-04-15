@@ -22,5 +22,10 @@ namespace SimpleNetworking.EventArgs
         /// The buffer received as a string
         /// </summary>
         public string MessageString => Encoding.UTF8.GetString(Buffer);
+        /// <summary>
+        /// The address plus port of the sender
+        /// </summary>
+        public string SenderAddress => (Sender.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork) ? $"{Sender.Address}:{Sender.Port}" : $"[{Sender.Address}]:{Sender.Port}";
+
     }
 }
