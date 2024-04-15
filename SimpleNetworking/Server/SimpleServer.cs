@@ -1,9 +1,7 @@
 ﻿using SimpleNetworking.EventArgs;
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace SimpleNetworking.Server
@@ -190,7 +188,8 @@ namespace SimpleNetworking.Server
                             Debug.WriteLine("Max connections reached. Ignoring incoming connection.");
                             continue;
                         }
-                        else if (!udpRemoteEndPoints!.Contains((IPEndPoint)result.Value.RemoteEndPoint))
+
+                        if (!udpRemoteEndPoints!.Contains((IPEndPoint)result.Value.RemoteEndPoint))
                         {
                             udpRemoteEndPoints.Add((IPEndPoint)result.Value.RemoteEndPoint);
                             clientLastSequenceNumbers!.Add(result.Value.RemoteEndPoint, 0);

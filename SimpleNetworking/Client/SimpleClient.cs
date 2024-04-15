@@ -259,7 +259,7 @@ namespace SimpleNetworking.Client
                     if (received == 0)
                         break;
 
-                    if (Protocol == Protocol.Tcp && !HandshakeSuccessful)
+                    if (!HandshakeSuccessful && Protocol == Protocol.Tcp)
                     {
                         HandshakeSuccessful = true;
                         OnConnectionOpened?.Invoke(new ClientConnectedEventArgs(client, DateTime.Now));
