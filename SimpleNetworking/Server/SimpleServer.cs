@@ -68,7 +68,7 @@ namespace SimpleNetworking.Server
             if (Protocol != Protocol.Tcp)
                 throw new InvalidOperationException("This method is only available for TCP servers.");
 
-            return connectedSockets!.Any(socket => socket.Connected && socket.RemoteEndPoint == remoteEndPoint);
+            return connectedSockets!.Exists(socket => socket.Connected && socket.RemoteEndPoint == remoteEndPoint);
         }
         /// <summary>
         /// Gets if the udp server is connected
@@ -149,6 +149,7 @@ namespace SimpleNetworking.Server
                 await semaphore.WaitAsync(token);
 
                 Socket socket = await listenSocket.AcceptAsync(token);
+                await socket.SendAsync(Encoding.UTF8.GetBytes("Connected to server"));
                 connectedSockets!.Add(socket);
                 OnClientConnected?.Invoke(new ClientConnectedEventArgs(socket, DateTime.Now));
 
@@ -184,12 +185,12 @@ namespace SimpleNetworking.Server
                         result = await socket.ReceiveFromAsync(receiveBuffer, SocketFlags.None, LocalEndPoint, token);
                         received = result.Value.ReceivedBytes;
 
-                        if (udpRemoteEndPoints!.Count >= maxConnections)
+                        if (udpRemoteEndPoints!.Count >= maxConnections && !udpRemoteEndPoints!.Contains((IPEndPoint)result.Value.RemoteEndPoint))
                         {
+                            Debug.WriteLine("Max connections reached. Ignoring incoming connection.");
                             continue;
                         }
-
-                        if (!udpRemoteEndPoints!.Contains((IPEndPoint)result.Value.RemoteEndPoint))
+                        else if (!udpRemoteEndPoints!.Contains((IPEndPoint)result.Value.RemoteEndPoint))
                         {
                             udpRemoteEndPoints.Add((IPEndPoint)result.Value.RemoteEndPoint);
                             clientLastSequenceNumbers!.Add(result.Value.RemoteEndPoint, 0);
