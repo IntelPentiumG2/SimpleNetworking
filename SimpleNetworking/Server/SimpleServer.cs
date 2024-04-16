@@ -42,12 +42,14 @@ namespace SimpleNetworking.Server
         private readonly List<Socket>? connectedSockets;
         private readonly List<IPEndPoint>? udpRemoteEndPoints;
         private readonly SemaphoreSlim semaphore;
-        private Socket GetTcpSocketByEndPoint(IPEndPoint iPEnd)
+
+        private bool TryGetTcpSocketByEndPoint(IPEndPoint iPEnd, out Socket? socket)
         {
             if (Protocol != Protocol.Tcp)
                 throw new InvalidOperationException("This method is only available for TCP servers.");
 
-            return connectedSockets!.First(s => s.Connected && ((IPEndPoint)s.RemoteEndPoint!).Address.Equals(iPEnd.Address));
+            socket = connectedSockets!.Find(s => s.Connected && ((IPEndPoint)s.RemoteEndPoint!).Address.Equals(iPEnd.Address));
+            return socket != null;
         }
 
         /// <summary>
@@ -295,14 +297,22 @@ namespace SimpleNetworking.Server
         /// <param name="remoteEndPoint">The IPEndPoint to send the data to</param>
         public void SendTo(byte[] message, IPEndPoint remoteEndPoint)
         {
-            if (Protocol == Protocol.Udp)
+            try
             {
-                byte[] messageWithEom = [sendSequenceNumber++, .. message, .. eomBytes];
-                listenSocket.SendTo(messageWithEom, remoteEndPoint);
+                if (Protocol == Protocol.Udp)
+                {
+                    byte[] messageWithEom = [sendSequenceNumber++, .. message, .. eomBytes];
+                    listenSocket.SendTo(messageWithEom, remoteEndPoint);
+                }
+                else if (Protocol == Protocol.Tcp && TryGetTcpSocketByEndPoint(remoteEndPoint, out Socket? socket))
+                {
+                    socket!.Send([.. message, .. eomBytes]);
+                }
             }
-            else if (Protocol == Protocol.Tcp)
+            finally
             {
-                GetTcpSocketByEndPoint(remoteEndPoint).Send([.. message, .. eomBytes]);
+                if (Protocol == Protocol.Tcp)
+                    semaphore.Release();
             }
         }
 
@@ -322,16 +332,27 @@ namespace SimpleNetworking.Server
         /// <returns>A task sending the data</returns>
         public async Task SendToAsync(byte[] message, IPEndPoint remoteEndPoint)
         {
-            switch (Protocol)
+            try
             {
-                case Protocol.Tcp:
-                    message = [.. message, .. eomBytes];
-                    await GetTcpSocketByEndPoint(remoteEndPoint).SendAsync(message);
-                    break;
-                case Protocol.Udp:
-                    message = [sendSequenceNumber++, .. message, .. eomBytes];
-                    await listenSocket.SendToAsync(message, remoteEndPoint);
-                    break;
+                switch (Protocol)
+                {
+                    case Protocol.Tcp:
+                        message = [.. message, .. eomBytes];
+                        if (TryGetTcpSocketByEndPoint(remoteEndPoint, out Socket? socket))
+                        {
+                            await socket!.SendAsync(message);
+                        }
+                        break;
+                    case Protocol.Udp:
+                        message = [sendSequenceNumber++, .. message, .. eomBytes];
+                        await listenSocket.SendToAsync(message, remoteEndPoint);
+                        break;
+                }
+            }
+            finally
+            {
+                if (Protocol == Protocol.Tcp)
+                    semaphore.Release();
             }
         }
 
@@ -347,20 +368,28 @@ namespace SimpleNetworking.Server
         /// <param name="message">The data to send</param>
         public void SendToAll(byte[] message)
         {
-            if (Protocol == Protocol.Udp)
+            try
             {
-                byte[] messageWithEom = [sendSequenceNumber++, .. message, .. eomBytes];
-                foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
+                if (Protocol == Protocol.Udp)
                 {
-                    listenSocket.SendTo(messageWithEom, remoteEndPoint);
+                    byte[] messageWithEom = [sendSequenceNumber++, .. message, .. eomBytes];
+                    foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
+                    {
+                        listenSocket.SendTo(messageWithEom, remoteEndPoint);
+                    }
+                }
+                else if (Protocol == Protocol.Tcp)
+                {
+                    foreach (Socket socket in connectedSockets!)
+                    {
+                        socket.Send([.. message, .. eomBytes]);
+                    }
                 }
             }
-            else if (Protocol == Protocol.Tcp)
+            finally
             {
-                foreach (Socket socket in connectedSockets!)
-                {
-                    socket.Send([.. message, .. eomBytes]);
-                }
+                if (Protocol == Protocol.Tcp)
+                    semaphore.Release();
             }
         }
 
@@ -378,22 +407,30 @@ namespace SimpleNetworking.Server
         /// <returns>A task sending the message</returns>
         public async Task SendToAllAsync(byte[] message)
         {
-            switch (Protocol)
+            try
             {
-                case Protocol.Udp:
-                    message = [sendSequenceNumber++, .. message, .. eomBytes];
-                    foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
-                    {
-                        await listenSocket.SendToAsync(message, remoteEndPoint);
-                    }
-                    break;
-                case Protocol.Tcp:
-                    message = [.. message, .. eomBytes];
-                    foreach (Socket socket in connectedSockets!)
-                    {
-                        await socket.SendAsync(message);
-                    }
-                    break;
+                switch (Protocol)
+                {
+                    case Protocol.Udp:
+                        message = [sendSequenceNumber++, .. message, .. eomBytes];
+                        foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
+                        {
+                            await listenSocket.SendToAsync(message, remoteEndPoint);
+                        }
+                        break;
+                    case Protocol.Tcp:
+                        message = [.. message, .. eomBytes];
+                        foreach (Socket socket in connectedSockets!)
+                        {
+                            await socket.SendAsync(message);
+                        }
+                        break;
+                }
+            }
+            finally
+            {
+                if (Protocol == Protocol.Tcp)
+                    semaphore.Release();
             }
         }
 
@@ -411,26 +448,34 @@ namespace SimpleNetworking.Server
         /// <param name="ipendpoints">The ipendpoints to exclude</param>
         public void SendToExcept(byte[] data, IPEndPoint[] ipendpoints)
         {
-            if (Protocol == Protocol.Udp)
+            try
             {
-                byte[] messageWithEom = [sendSequenceNumber++, .. data, .. eomBytes];
-                foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
+                if (Protocol == Protocol.Udp)
                 {
-                    if (!ipendpoints.Contains(remoteEndPoint))
+                    byte[] messageWithEom = [sendSequenceNumber++, .. data, .. eomBytes];
+                    foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
                     {
-                        listenSocket.SendTo(messageWithEom, remoteEndPoint);
+                        if (!ipendpoints.Contains(remoteEndPoint))
+                        {
+                            listenSocket.SendTo(messageWithEom, remoteEndPoint);
+                        }
+                    }
+                }
+                else if (Protocol == Protocol.Tcp)
+                {
+                    foreach (Socket socket in connectedSockets!)
+                    {
+                        if (!Array.Exists(ipendpoints, ep => ep.Address == (socket.RemoteEndPoint as IPEndPoint)!.Address))
+                        {
+                            socket.Send([.. data, .. eomBytes]);
+                        }
                     }
                 }
             }
-            else if (Protocol == Protocol.Tcp)
+            finally
             {
-                foreach (Socket socket in connectedSockets!)
-                {
-                    if (!Array.Exists(ipendpoints, ep => ep.Address == (socket.RemoteEndPoint as IPEndPoint)!.Address))
-                    {
-                        socket.Send([.. data, .. eomBytes]);
-                    }
-                }
+                if (Protocol == Protocol.Tcp)
+                    semaphore.Release();
             }
         }
 
@@ -450,27 +495,35 @@ namespace SimpleNetworking.Server
         /// <returns></returns>
         public async Task SendToExceptAsync(byte[] data, IPEndPoint[] ipendpoints)
         {
-            if (Protocol == Protocol.Udp)
+            try
             {
-                byte[] messageWithEom = [sendSequenceNumber++, .. data, .. eomBytes];
-                foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
+                if (Protocol == Protocol.Udp)
                 {
-                    if (!ipendpoints.Contains(remoteEndPoint))
+                    byte[] messageWithEom = [sendSequenceNumber++, .. data, .. eomBytes];
+                    foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
                     {
-                        await listenSocket.SendToAsync(messageWithEom, remoteEndPoint);
+                        if (!ipendpoints.Contains(remoteEndPoint))
+                        {
+                            await listenSocket.SendToAsync(messageWithEom, remoteEndPoint);
+                        }
+                    }
+                }
+                else if (Protocol == Protocol.Tcp)
+                {
+                    foreach (Socket socket in connectedSockets!)
+                    {
+                        if (!Array.Exists(ipendpoints, ep => ep.Address == (socket.RemoteEndPoint as IPEndPoint)!.Address))
+                        {
+                            byte[] message = [.. data, .. eomBytes];
+                            await socket.SendAsync(message);
+                        }
                     }
                 }
             }
-            else if (Protocol == Protocol.Tcp)
+            finally
             {
-                foreach (Socket socket in connectedSockets!)
-                {
-                    if (!Array.Exists(ipendpoints, ep => ep.Address == (socket.RemoteEndPoint as IPEndPoint)!.Address))
-                    {
-                        byte[] message = [.. data, .. eomBytes];
-                        await socket.SendAsync(message);
-                    }
-                }
+                if (Protocol == Protocol.Tcp)
+                    semaphore.Release();
             }
         }
 
