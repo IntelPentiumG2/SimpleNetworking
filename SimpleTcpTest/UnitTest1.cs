@@ -85,7 +85,7 @@ namespace SimpleTcpTest
             {
                 Assert.That(deserialized.IntValue, Is.EqualTo(packet.IntValue));
                 Assert.That(deserialized.StringValue, Is.EqualTo(packet.StringValue));
-                Assert.That(deserialized.Type, Is.EqualTo(nameof(TestObjectToSerializePacket)));
+                Assert.That(deserialized.Type, Is.EqualTo(typeof(TestObjectToSerializePacket).AssemblyQualifiedName));
                 Assert.That(deserialized.Type, Is.EqualTo(Packet.GetType(serialized)));
                 Assert.That(deserialized.Guid, Is.Not.EqualTo(Guid.Empty));
             });

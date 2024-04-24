@@ -15,6 +15,8 @@ namespace SimpleNetworking.Client
         private byte sendingSequenceNumber = 1;
         private const string eom = "<EOM>";
         private readonly byte[] eomBytes = Encoding.UTF8.GetBytes(eom);
+        private int EomLength => eomBytes.Length;
+        private readonly int prefixLength = 1 + 1 + 4; // Sequence number + MessageType + Message length
 
         /// <summary>
         /// Gets if the handshake was successful.
@@ -172,7 +174,8 @@ namespace SimpleNetworking.Client
         /// </summary>
         public void Disconnect()
         {
-            client.Disconnect(false);
+            if (IsConnected && Protocol == Protocol.Tcp)
+                client.Disconnect(false);
         }
 
        /// <summary>

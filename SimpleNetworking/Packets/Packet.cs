@@ -32,6 +32,26 @@ namespace SimpleNetworking.Packets
         {
             return Guid.Parse(JsonSerializer.Deserialize<JsonObject>(json, options)?["Guid"]?.ToString() ?? throw new ArgumentException("Failed to get packet guid. Json invalid."));
         }
+
+        /// <summary>
+        /// Tries to get the type and packet from a json string.
+        /// </summary>
+        /// <param name="json">The json string to deserialize</param>
+        /// <param name="type">The type of the packet</param>
+        /// <param name="packet">The packet itself</param>
+        /// <returns>true if a packet could be deserialized, otherwise false</returns>
+        public static bool TryGetPacket(string json, out Type? type, out dynamic? packet)
+        {
+            type = System.Type.GetType(GetType(json));
+            if (type == null)
+            {
+                packet = null;
+                return false;
+            }
+
+            packet = JsonSerializer.Deserialize(json, type);
+            return packet != null;
+        }
     }
 
     /// <summary>
@@ -43,7 +63,7 @@ namespace SimpleNetworking.Packets
         /// <summary>
         /// Gets the Type of the Packet
         /// </summary>
-        public string Type { get; set; } = typeof(T).Name;
+        public string Type { get; set; } = typeof(T).AssemblyQualifiedName;
         /// <summary>
         /// Gets the Guid of the Packet
         /// </summary>
