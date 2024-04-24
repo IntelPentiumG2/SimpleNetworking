@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace SimpleNetworking.Packets
@@ -97,7 +96,6 @@ namespace SimpleNetworking.Packets
         /// <returns>true if it could be deserialized, otherwise false</returns>
         public static bool TryDeserialize(string json, out T? packet)
         {
-
             try
             {
                 packet = Deserialize(json);

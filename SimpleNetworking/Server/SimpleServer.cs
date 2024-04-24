@@ -1,4 +1,5 @@
-﻿using SimpleNetworking.EventArgs;
+﻿using System.Buffers;
+using SimpleNetworking.EventArgs;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -68,7 +69,7 @@ namespace SimpleNetworking.Server
             if (Protocol != Protocol.Tcp)
                 throw new InvalidOperationException("This method is only available for TCP servers.");
 
-            return connectedSockets!.Exists(socket => socket.Connected && socket.RemoteEndPoint == remoteEndPoint);
+            return connectedSockets!.Exists(socket => socket.Connected && socket.RemoteEndPoint!.Equals(remoteEndPoint));
         }
         /// <summary>
         /// Gets if the udp server is connected
@@ -172,7 +173,7 @@ namespace SimpleNetworking.Server
             {
                 while (!token.IsCancellationRequested)
                 {
-                    byte[] receiveBuffer = new byte[socket.ReceiveBufferSize];
+                    byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(socket.ReceiveBufferSize);
                     int received;
                     SocketReceiveFromResult? result = null;
 
@@ -188,6 +189,7 @@ namespace SimpleNetworking.Server
                         if (udpRemoteEndPoints!.Count >= maxConnections && !udpRemoteEndPoints!.Contains((IPEndPoint)result.Value.RemoteEndPoint))
                         {
                             Debug.WriteLine("Max connections reached. Ignoring incoming connection.");
+                            ArrayPool<byte>.Shared.Return(receiveBuffer);
                             continue;
                         }
 
@@ -204,17 +206,23 @@ namespace SimpleNetworking.Server
                     }
 
                     if (received == 0)
+                    {
+                        ArrayPool<byte>.Shared.Return(receiveBuffer);
                         break;
+                    }
 
-                    receiveBuffer = receiveBuffer[..received];
+                    Memory<byte> buffer;
 
                     if (truncationBuffer.Count > 0)
                     {
-                        receiveBuffer = [.. truncationBuffer, .. receiveBuffer];
+                        truncationBuffer.AddRange(receiveBuffer[..received]);
+                        buffer = truncationBuffer.ToArray().AsMemory();
                         truncationBuffer.Clear();
                     }
-
-                    Memory<byte> buffer = receiveBuffer.AsMemory(0, receiveBuffer.Length);
+                    else
+                    {
+                        buffer = receiveBuffer.AsMemory(0, received);
+                    }
 
                     int eomIndex;
                     while ((eomIndex = buffer.Span.IndexOf(eomBytes)) >= 0)
@@ -259,6 +267,8 @@ namespace SimpleNetworking.Server
                         truncationBuffer.AddRange(buffer.ToArray());
                         Debug.WriteLine($"Truncated on server: {Encoding.UTF8.GetString(truncationBuffer.ToArray())}.");
                     }
+
+                    ArrayPool<byte>.Shared.Return(receiveBuffer);
                 }
             }
             catch (Exception ex)
@@ -309,7 +319,7 @@ namespace SimpleNetworking.Server
                     socket!.Send([.. message, .. eomBytes]);
                 }
             }
-            finally
+            catch
             {
                 if (Protocol == Protocol.Tcp)
                     semaphore.Release();
@@ -349,7 +359,7 @@ namespace SimpleNetworking.Server
                         break;
                 }
             }
-            finally
+            catch
             {
                 if (Protocol == Protocol.Tcp)
                     semaphore.Release();
@@ -386,7 +396,7 @@ namespace SimpleNetworking.Server
                     }
                 }
             }
-            finally
+            catch
             {
                 if (Protocol == Protocol.Tcp)
                     semaphore.Release();
@@ -427,7 +437,7 @@ namespace SimpleNetworking.Server
                         break;
                 }
             }
-            finally
+            catch
             {
                 if (Protocol == Protocol.Tcp)
                     semaphore.Release();
@@ -472,7 +482,7 @@ namespace SimpleNetworking.Server
                     }
                 }
             }
-            finally
+            catch
             {
                 if (Protocol == Protocol.Tcp)
                     semaphore.Release();
@@ -520,7 +530,7 @@ namespace SimpleNetworking.Server
                     }
                 }
             }
-            finally
+            catch
             {
                 if (Protocol == Protocol.Tcp)
                     semaphore.Release();

@@ -3,6 +3,7 @@ using System.Text;
 using System.Net.Sockets;
 using SimpleNetworking.EventArgs;
 using System.Diagnostics;
+using System.Buffers;
 
 namespace SimpleNetworking.Client
 {
@@ -256,28 +257,35 @@ namespace SimpleNetworking.Client
             {
                 while (!token.IsCancellationRequested)
                 {
-                    byte[] receiveBuffer = new byte[ReadBufferSize];
+                    byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(ReadBufferSize);
                     int received = await client.ReceiveAsync(receiveBuffer, token);
 
                     if (received == 0)
+                    {
+                        ArrayPool<byte>.Shared.Return(receiveBuffer);
                         break;
+                    }
 
                     if (!HandshakeSuccessful && Protocol == Protocol.Tcp)
                     {
                         HandshakeSuccessful = true;
                         OnConnectionOpened?.Invoke(new ClientConnectedEventArgs(client, DateTime.Now));
+                        ArrayPool<byte>.Shared.Return(receiveBuffer);
                         continue;
                     }
 
-                    receiveBuffer = receiveBuffer[..received];
+                    Memory<byte> buffer;
 
                     if (truncationBuffer.Count > 0)
                     {
-                        receiveBuffer = [.. truncationBuffer, .. receiveBuffer];
+                        truncationBuffer.AddRange(receiveBuffer[..received]);
+                        buffer = truncationBuffer.ToArray().AsMemory();
                         truncationBuffer.Clear();
                     }
-
-                    Memory<byte> buffer = receiveBuffer.AsMemory(0, receiveBuffer.Length);
+                    else
+                    {
+                        buffer = receiveBuffer.AsMemory(0, received);
+                    }
 
                     int eomIndex;
                     while ((eomIndex = buffer.Span.IndexOf(eomBytes)) >= 0)
@@ -296,7 +304,7 @@ namespace SimpleNetworking.Client
                                 Debug.WriteLine($"Packet loss detected. Client skipping packet {sequenceNumber}. " +
                                     $"Waiting for packet: {lastSequenceNumber + 1}");
 
-                                buffer = buffer[(eomIndex + eomBytes.Length)..];
+                                buffer = buffer[(eomIndex + EomLength)..];
 
                                 if (sequenceNumber > lastSequenceNumber)
                                     lastSequenceNumber = sequenceNumber;
@@ -309,7 +317,7 @@ namespace SimpleNetworking.Client
 
                         // Invoke message received event
                         OnMessageReceived?.Invoke(new MessageReceivedEventArgs(message.ToArray(), RemoteEndPoint));
-                        buffer = buffer[(eomIndex + eomBytes.Length)..];
+                        buffer = buffer[(eomIndex + EomLength)..];
                     }
 
                     // Remaining bytes are part of the next message or are truncated
@@ -318,6 +326,8 @@ namespace SimpleNetworking.Client
                         truncationBuffer.AddRange(buffer.ToArray());
                         Debug.WriteLine($"Truncated on client: {Encoding.UTF8.GetString(truncationBuffer.ToArray())}.");
                     }
+
+                    ArrayPool<byte>.Shared.Return(receiveBuffer);
                 }
             }
             catch (OperationCanceledException)
