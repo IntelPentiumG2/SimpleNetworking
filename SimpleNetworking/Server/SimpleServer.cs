@@ -177,32 +177,32 @@ namespace SimpleNetworking.Server
                     int received;
                     SocketReceiveFromResult? result = null;
 
-                    if (socket.ProtocolType == ProtocolType.Tcp)
+                    switch (socket.ProtocolType)
                     {
-                        received = await socket.ReceiveAsync(receiveBuffer, SocketFlags.None, token);
-                    }
-                    else if (socket.ProtocolType == ProtocolType.Udp)
-                    {
-                        result = await socket.ReceiveFromAsync(receiveBuffer, SocketFlags.None, LocalEndPoint, token);
-                        received = result.Value.ReceivedBytes;
+                        case ProtocolType.Tcp:
+                            received = await socket.ReceiveAsync(receiveBuffer, SocketFlags.None, token);
+                            break;
+                        case ProtocolType.Udp:
+                            result = await socket.ReceiveFromAsync(receiveBuffer, SocketFlags.None, LocalEndPoint, token);
+                            received = result.Value.ReceivedBytes;
 
-                        if (udpRemoteEndPoints!.Count >= maxConnections && !udpRemoteEndPoints!.Contains((IPEndPoint)result.Value.RemoteEndPoint))
-                        {
-                            Debug.WriteLine("Max connections reached. Ignoring incoming connection.");
+                            if (udpRemoteEndPoints!.Count >= maxConnections && !udpRemoteEndPoints!.Contains((IPEndPoint)result.Value.RemoteEndPoint))
+                            {
+                                Debug.WriteLine("Max connections reached. Ignoring incoming connection.");
+                                ArrayPool<byte>.Shared.Return(receiveBuffer);
+                                continue;
+                            }
+
+                            if (!udpRemoteEndPoints!.Contains((IPEndPoint)result.Value.RemoteEndPoint))
+                            {
+                                udpRemoteEndPoints.Add((IPEndPoint)result.Value.RemoteEndPoint);
+                                clientLastSequenceNumbers!.Add(result.Value.RemoteEndPoint, 0);
+                                OnClientConnected?.Invoke(new ClientConnectedEventArgs(listenSocket, DateTime.Now));
+                            }
+                            break;
+                        default:
                             ArrayPool<byte>.Shared.Return(receiveBuffer);
-                            continue;
-                        }
-
-                        if (!udpRemoteEndPoints!.Contains((IPEndPoint)result.Value.RemoteEndPoint))
-                        {
-                            udpRemoteEndPoints.Add((IPEndPoint)result.Value.RemoteEndPoint);
-                            clientLastSequenceNumbers!.Add(result.Value.RemoteEndPoint, 0);
-                            OnClientConnected?.Invoke(new ClientConnectedEventArgs(listenSocket, DateTime.Now));
-                        }
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException("Invalid protocol type");
+                            throw new InvalidOperationException("Invalid protocol type");
                     }
 
                     if (received == 0)
@@ -264,7 +264,8 @@ namespace SimpleNetworking.Server
                     // Remaining bytes are part of the next message or are truncated
                     if (!buffer.IsEmpty)
                     {
-                        truncationBuffer.AddRange(buffer.ToArray());
+                        truncationBuffer.AddRange(buffer.Span);
+                        buffer.Span.Clear();
                         Debug.WriteLine($"Truncated on server: {Encoding.UTF8.GetString(truncationBuffer.ToArray())}.");
                     }
 
@@ -278,18 +279,22 @@ namespace SimpleNetworking.Server
             }
             finally
             {
-                if (socket.ProtocolType == ProtocolType.Udp)
+                switch (socket.ProtocolType)
                 {
-                    udpRemoteEndPoints!.Remove((IPEndPoint)socket.RemoteEndPoint!);
-                    clientLastSequenceNumbers!.Remove(socket.RemoteEndPoint!);
+                    case ProtocolType.Udp:
+                        udpRemoteEndPoints!.Remove((IPEndPoint)socket.RemoteEndPoint!);
+                        clientLastSequenceNumbers!.Remove(socket.RemoteEndPoint!);
+                        break;
+                    case ProtocolType.Tcp:
+                        connectedSockets!.Remove(socket);
+                        break;
                 }
-                else if (socket.ProtocolType == ProtocolType.Tcp)
-                {
-                    connectedSockets!.Remove(socket);
-                }
+                
+                truncationBuffer.Clear();
 
                 semaphore.Release();
                 OnClientDisconnected?.Invoke(new ClientDisconnectedEventArgs(socket, DateTime.Now, $"Client {(socket.RemoteEndPoint as IPEndPoint)!.Address}:{(socket.RemoteEndPoint as IPEndPoint)!.Port} disconnected"));
+                socket.Dispose();
             }
         }
 
@@ -475,7 +480,7 @@ namespace SimpleNetworking.Server
                 {
                     foreach (Socket socket in connectedSockets!)
                     {
-                        if (!Array.Exists(ipendpoints, ep => ep.Address == (socket.RemoteEndPoint as IPEndPoint)!.Address))
+                        if (!Array.Exists(ipendpoints, ep => ep.Address.Equals((socket.RemoteEndPoint as IPEndPoint)!.Address)))
                         {
                             socket.Send([.. data, .. eomBytes]);
                         }
@@ -522,11 +527,12 @@ namespace SimpleNetworking.Server
                 {
                     foreach (Socket socket in connectedSockets!)
                     {
-                        if (!Array.Exists(ipendpoints, ep => ep.Address == (socket.RemoteEndPoint as IPEndPoint)!.Address))
+                        if (Array.Exists(ipendpoints, ep => ep.Address.Equals((socket.RemoteEndPoint as IPEndPoint)!.Address)))
                         {
-                            byte[] message = [.. data, .. eomBytes];
-                            await socket.SendAsync(message);
+                            continue;
                         }
+                        byte[] message = [.. data, .. eomBytes];
+                        await socket.SendAsync(message);
                     }
                 }
             }
