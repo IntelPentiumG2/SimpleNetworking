@@ -37,6 +37,9 @@ namespace SimpleNetworking.Server
         /// </summary>
         private readonly Dictionary<EndPoint, byte>? clientLastSequenceNumbers;
 
+        private int EomLength => eomBytes.Length;
+        private readonly int prefixLength;
+
         /// <summary>
         /// The list of connected TCP sockets
         /// </summary>
@@ -57,7 +60,6 @@ namespace SimpleNetworking.Server
         /// Gets the protocol used by the server
         /// </summary>
         public Protocol Protocol { get; }
-        
         /// <summary>
         /// Gets if the server with the specified remote endpoint is connected
         /// </summary>
@@ -118,8 +120,28 @@ namespace SimpleNetworking.Server
                     throw new ArgumentException("Invalid protocol");
             }
 
+            prefixLength = Global.PrefixLength(Protocol);
             listenSocket.Bind(LocalEndPoint);
         }
+
+        /// <summary>
+        /// Creates a new instance of the SimpleServer class
+        /// </summary>
+        /// <param name="protocol">The protocol to use</param>
+        /// <param name="maxConnections">The max amounts of clients allowed to connect</param>
+        /// <param name="port">The port to listen on</param>
+        /// <param name="ip">The ip to listen on</param>
+        /// <exception cref="ArgumentException"></exception>
+        public SimpleServer(Protocol protocol, int maxConnections, int port, string ip) : this(protocol, maxConnections, port, IPAddress.Parse(ip)) { }
+
+        /// <summary>
+        /// Creates a new instance of the SimpleServer class
+        /// </summary>
+        /// <param name="protocol">The protocol to use</param>
+        /// <param name="maxConnections">The max amounts of clients allowed to connect</param>
+        /// <param name="localEndPoint">The local endpoint to listen on</param>
+        /// <exception cref="ArgumentException"></exception>
+        public SimpleServer(Protocol protocol, int maxConnections, IPEndPoint localEndPoint) : this(protocol, maxConnections, localEndPoint.Port, localEndPoint.Address) { }
 
         /// <summary>
         /// Starts listening for incoming connections and messages
@@ -224,10 +246,26 @@ namespace SimpleNetworking.Server
                         buffer = receiveBuffer.AsMemory(0, received);
                     }
 
-                    int eomIndex;
-                    while ((eomIndex = buffer.Span.IndexOf(eomBytes)) >= 0)
+                    int messageLength;
+                    while (buffer.Span.Length > prefixLength && (messageLength = BitConverter.ToUInt16(buffer.Span)) <= buffer.Span.Length - (prefixLength + EomLength))
                     {
-                        Memory<byte> message = buffer[..eomIndex];
+                        if (messageLength > socket.ReceiveBufferSize)
+                        {
+                            Debug.WriteLine("Could not identify message length. Ignoring.");
+                            buffer = buffer[(messageLength + EomLength + prefixLength)..];
+                            continue;
+                        }
+
+                        Memory<byte> message = buffer[prefixLength..(messageLength + EomLength + prefixLength)];
+
+                        if (!message.Span.EndsWith(eomBytes))
+                        {
+                            Debug.WriteLine("Message end delimiter missing. Ignoring.");
+                            buffer = buffer[(messageLength + EomLength + prefixLength)..];
+                            continue;
+                        }
+
+                        message = message[..^EomLength];
 
                         if (socket.ProtocolType == ProtocolType.Udp)
                         {
@@ -241,7 +279,7 @@ namespace SimpleNetworking.Server
                                 Debug.WriteLine($"Packet loss detected. Client skipping packet {sequenceNumber}. " +
                                     $"Waiting for packet: {lastSequenceNumber + 1}");
 
-                                buffer = buffer[(eomIndex + eomBytes.Length)..];
+                                buffer = buffer[(messageLength + eomBytes.Length + prefixLength)..];
 
                                 continue;
                             }
@@ -258,7 +296,7 @@ namespace SimpleNetworking.Server
 
                         // Invoke message received event
                         OnMessageReceived?.Invoke(new MessageReceivedEventArgs(message.ToArray(), endPoint));
-                        buffer = buffer[(eomIndex + eomBytes.Length)..];
+                        buffer = buffer[(messageLength + eomBytes.Length + prefixLength)..];
                     }
 
                     // Remaining bytes are part of the next message or are truncated
@@ -314,14 +352,15 @@ namespace SimpleNetworking.Server
         {
             try
             {
+                byte[] lengthBytes = BitConverter.GetBytes(((ushort)message.Length));
                 if (Protocol == Protocol.Udp)
                 {
-                    byte[] messageWithEom = [sendSequenceNumber++, .. message, .. eomBytes];
+                    byte[] messageWithEom = [..lengthBytes, sendSequenceNumber++, .. message, .. eomBytes];
                     listenSocket.SendTo(messageWithEom, remoteEndPoint);
                 }
                 else if (Protocol == Protocol.Tcp && TryGetTcpSocketByEndPoint(remoteEndPoint, out Socket? socket))
                 {
-                    socket!.Send([.. message, .. eomBytes]);
+                    socket!.Send([.. lengthBytes, .. message, .. eomBytes]);
                 }
             }
             catch
@@ -349,17 +388,18 @@ namespace SimpleNetworking.Server
         {
             try
             {
+                byte[] lengthBytes = BitConverter.GetBytes(((ushort)message.Length));
                 switch (Protocol)
                 {
                     case Protocol.Tcp:
-                        message = [.. message, .. eomBytes];
+                        message = [.. lengthBytes, .. message, .. eomBytes];
                         if (TryGetTcpSocketByEndPoint(remoteEndPoint, out Socket? socket))
                         {
                             await socket!.SendAsync(message);
                         }
                         break;
                     case Protocol.Udp:
-                        message = [sendSequenceNumber++, .. message, .. eomBytes];
+                        message = [.. lengthBytes, sendSequenceNumber++, .. message, .. eomBytes];
                         await listenSocket.SendToAsync(message, remoteEndPoint);
                         break;
                 }
@@ -385,9 +425,10 @@ namespace SimpleNetworking.Server
         {
             try
             {
+                byte[] lengthBytes = BitConverter.GetBytes(((ushort)message.Length));
                 if (Protocol == Protocol.Udp)
                 {
-                    byte[] messageWithEom = [sendSequenceNumber++, .. message, .. eomBytes];
+                    byte[] messageWithEom = [.. lengthBytes, sendSequenceNumber++, .. message, .. eomBytes];
                     foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
                     {
                         listenSocket.SendTo(messageWithEom, remoteEndPoint);
@@ -397,7 +438,7 @@ namespace SimpleNetworking.Server
                 {
                     foreach (Socket socket in connectedSockets!)
                     {
-                        socket.Send([.. message, .. eomBytes]);
+                        socket.Send([.. lengthBytes, .. message, .. eomBytes]);
                     }
                 }
             }
@@ -424,17 +465,18 @@ namespace SimpleNetworking.Server
         {
             try
             {
+                byte[] lengthBytes = BitConverter.GetBytes(((ushort)message.Length));
                 switch (Protocol)
                 {
                     case Protocol.Udp:
-                        message = [sendSequenceNumber++, .. message, .. eomBytes];
+                        message = [.. lengthBytes, sendSequenceNumber++, .. message, .. eomBytes];
                         foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
                         {
                             await listenSocket.SendToAsync(message, remoteEndPoint);
                         }
                         break;
                     case Protocol.Tcp:
-                        message = [.. message, .. eomBytes];
+                        message = [.. lengthBytes, .. message, .. eomBytes];
                         foreach (Socket socket in connectedSockets!)
                         {
                             await socket.SendAsync(message);
@@ -465,9 +507,10 @@ namespace SimpleNetworking.Server
         {
             try
             {
+                byte[] lengthBytes = BitConverter.GetBytes(((ushort)data.Length));
                 if (Protocol == Protocol.Udp)
                 {
-                    byte[] messageWithEom = [sendSequenceNumber++, .. data, .. eomBytes];
+                    byte[] messageWithEom = [.. lengthBytes, sendSequenceNumber++, .. data, .. eomBytes];
                     foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
                     {
                         if (!ipendpoints.Contains(remoteEndPoint))
@@ -482,7 +525,7 @@ namespace SimpleNetworking.Server
                     {
                         if (!Array.Exists(ipendpoints, ep => ep.Address.Equals((socket.RemoteEndPoint as IPEndPoint)!.Address)))
                         {
-                            socket.Send([.. data, .. eomBytes]);
+                            socket.Send([.. lengthBytes, .. data, .. eomBytes]);
                         }
                     }
                 }
@@ -512,9 +555,10 @@ namespace SimpleNetworking.Server
         {
             try
             {
+                byte[] lengthBytes = BitConverter.GetBytes(((ushort)data.Length));
                 if (Protocol == Protocol.Udp)
                 {
-                    byte[] messageWithEom = [sendSequenceNumber++, .. data, .. eomBytes];
+                    byte[] messageWithEom = [.. lengthBytes, sendSequenceNumber++, .. data, .. eomBytes];
                     foreach (IPEndPoint remoteEndPoint in udpRemoteEndPoints!)
                     {
                         if (!ipendpoints.Contains(remoteEndPoint))
@@ -531,7 +575,7 @@ namespace SimpleNetworking.Server
                         {
                             continue;
                         }
-                        byte[] message = [.. data, .. eomBytes];
+                        byte[] message = [.. lengthBytes, .. data, .. eomBytes];
                         await socket.SendAsync(message);
                     }
                 }
