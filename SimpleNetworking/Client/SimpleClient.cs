@@ -1,9 +1,9 @@
-﻿using System.Net;
-using System.Text;
-using System.Net.Sockets;
-using SimpleNetworking.EventArgs;
-using System.Diagnostics;
+﻿using SimpleNetworking.EventArgs;
 using System.Buffers;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 
 namespace SimpleNetworking.Client
 {
@@ -269,7 +269,7 @@ namespace SimpleNetworking.Client
                             continue;
                         }
 
-                        Memory<byte> message = buffer[prefixLength..(messageLength + EomLength + prefixLength)];
+                        Memory<byte> message = buffer[prefixLength..(messageLength + prefixLength + EomLength)];
 
                         if (!message.Span.EndsWith(eomBytes))
                         {
@@ -282,8 +282,7 @@ namespace SimpleNetworking.Client
 
                         if (Protocol == Protocol.Udp)
                         {
-                            byte sequenceNumber = message.Span[0];
-                            message = message[1..];
+                            byte sequenceNumber = buffer.Span[2];
 
                             if (sequenceNumber != lastSequenceNumber + 1
                                 && !(sequenceNumber == 0 && lastSequenceNumber == 255))
