@@ -3,6 +3,7 @@ using System.Text;
 using System.Net.Sockets;
 using SimpleNetworking.EventArgs;
 using System.Diagnostics;
+using System.Buffers;
 
 namespace SimpleNetworking.Client
 {
@@ -15,6 +16,8 @@ namespace SimpleNetworking.Client
         private byte sendingSequenceNumber = 1;
         private const string eom = "<EOM>";
         private readonly byte[] eomBytes = Encoding.UTF8.GetBytes(eom);
+        private int EomLength => eomBytes.Length;
+        private readonly int prefixLength;
 
         /// <summary>
         /// Gets if the handshake was successful.
@@ -74,11 +77,12 @@ namespace SimpleNetworking.Client
 
             client = protocol switch
             {
-                Protocol.Tcp => new Socket(ip?.AddressFamily ?? AddressFamily.Unspecified, SocketType.Stream, ProtocolType.Tcp),
-                Protocol.Udp => new Socket(ip?.AddressFamily ?? AddressFamily.Unspecified, SocketType.Dgram, ProtocolType.Udp),
+                Protocol.Tcp => new Socket(RemoteEndPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp),
+                Protocol.Udp => new Socket(RemoteEndPoint.AddressFamily, SocketType.Dgram, ProtocolType.Udp),
                 _ => throw new ArgumentException("Invalid protocol"),
             };
 
+            prefixLength = Global.PrefixLength(Protocol);
             client.SendBufferSize = SendBufferSize;
             client.ReceiveBufferSize = ReadBufferSize;
             LocalEndPoint = client.LocalEndPoint as IPEndPoint;
@@ -93,24 +97,8 @@ namespace SimpleNetworking.Client
         /// <param name="port">The port to connect to</param>
         /// <param name="ip">The ip to connect to</param>
         /// <exception cref="ArgumentException">Throws if an invalid protocol was given</exception>
-        /// <exception cref="FormatException">Throws if the ip is not valid</exception>"
-        public SimpleClient(Protocol protocol, int port, string ip)
-        {
-            this.Protocol = protocol;
-            IPAddress ipAddress = IPAddress.Parse(ip);
-            RemoteEndPoint = new IPEndPoint(ipAddress, port);
-
-            client = protocol switch
-            {
-                Protocol.Tcp => new Socket(ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp),
-                Protocol.Udp => new Socket(ipAddress.AddressFamily, SocketType.Dgram, ProtocolType.Udp),
-                _ => throw new ArgumentException("Invalid protocol"),
-            };
-
-            client.SendBufferSize = SendBufferSize;
-            client.ReceiveBufferSize = ReadBufferSize;
-            LocalEndPoint = client.LocalEndPoint as IPEndPoint;
-        }
+        /// <exception cref="FormatException">Throws if the ip is not valid</exception>
+        public SimpleClient(Protocol protocol, int port, string ip) : this(protocol, port, IPAddress.Parse(ip)) { }
 
         /// <summary>
         /// Creates a new SimpleClient with the specified protocol, port and ip.
@@ -120,22 +108,7 @@ namespace SimpleNetworking.Client
         /// <param name="protocol">The protocol to use</param>
         /// <param name="remoteEndPoint">The remote endpoint to connect to</param>
         /// <exception cref="ArgumentException">Throws if an invalid protocol was given</exception>
-        public SimpleClient(Protocol protocol, IPEndPoint remoteEndPoint)
-        {
-            this.Protocol = protocol;
-            RemoteEndPoint = remoteEndPoint;
-
-            client = protocol switch
-            {
-                Protocol.Tcp => new Socket(remoteEndPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp),
-                Protocol.Udp => new Socket(remoteEndPoint.AddressFamily, SocketType.Dgram, ProtocolType.Udp),
-                _ => throw new ArgumentException("Invalid protocol"),
-            };
-
-            client.SendBufferSize = SendBufferSize;
-            client.ReceiveBufferSize = ReadBufferSize;
-            LocalEndPoint = client.LocalEndPoint as IPEndPoint;
-        }
+        public SimpleClient(Protocol protocol, IPEndPoint remoteEndPoint) : this(protocol, remoteEndPoint.Port, remoteEndPoint.Address) { }
 
         /// <summary>
         /// Sets the buffer sizes for the client.
@@ -172,7 +145,8 @@ namespace SimpleNetworking.Client
         /// </summary>
         public void Disconnect()
         {
-            client.Disconnect(false);
+            if (IsConnected && Protocol == Protocol.Tcp)
+                client.Disconnect(false);
         }
 
        /// <summary>
@@ -194,10 +168,11 @@ namespace SimpleNetworking.Client
             if (!IsConnected) throw new InvalidOperationException("Client is not connected to a host.");
             if (!HandshakeSuccessful) return;
 
+            byte[] lengthBytes = BitConverter.GetBytes(((ushort)data.Length));
             data = Protocol switch
             {
-                Protocol.Tcp => [.. data, .. eomBytes],
-                Protocol.Udp => [sendingSequenceNumber++, .. data, .. eomBytes],
+                Protocol.Tcp => [.. lengthBytes, .. data, .. eomBytes],
+                Protocol.Udp => [.. lengthBytes, sendingSequenceNumber++, .. data, .. eomBytes],
                 _ => throw new InvalidOperationException("Invalid protocol"),
             };
             if (data.Length > SendBufferSize)
@@ -224,10 +199,11 @@ namespace SimpleNetworking.Client
             if (!IsConnected) throw new InvalidOperationException("Client is not connected to a host.");
             if (!HandshakeSuccessful) return;
 
+            byte[] lengthBytes = BitConverter.GetBytes(((ushort)data.Length));
             data = Protocol switch
             {
-                Protocol.Tcp => [.. data, .. eomBytes],
-                Protocol.Udp => [sendingSequenceNumber++, .. data, .. eomBytes],
+                Protocol.Tcp => [.. lengthBytes, .. data, .. eomBytes],
+                Protocol.Udp => [.. lengthBytes, sendingSequenceNumber++, .. data, .. eomBytes],
                 _ => throw new InvalidOperationException("Invalid protocol"),
             };
             if (data.Length > SendBufferSize)
@@ -253,34 +229,56 @@ namespace SimpleNetworking.Client
             {
                 while (!token.IsCancellationRequested)
                 {
-                    byte[] receiveBuffer = new byte[ReadBufferSize];
+                    byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(ReadBufferSize);
                     int received = await client.ReceiveAsync(receiveBuffer, token);
 
                     if (received == 0)
+                    {
+                        ArrayPool<byte>.Shared.Return(receiveBuffer);
                         break;
+                    }
 
                     if (!HandshakeSuccessful && Protocol == Protocol.Tcp)
                     {
                         HandshakeSuccessful = true;
                         OnConnectionOpened?.Invoke(new ClientConnectedEventArgs(client, DateTime.Now));
+                        ArrayPool<byte>.Shared.Return(receiveBuffer);
                         continue;
                     }
-
-                    receiveBuffer = receiveBuffer[..received];
+                    
+                    Memory<byte> buffer;
 
                     if (truncationBuffer.Count > 0)
                     {
-                        receiveBuffer = [.. truncationBuffer, .. receiveBuffer];
+                        truncationBuffer.AddRange(receiveBuffer[..received]);
+                        buffer = truncationBuffer.ToArray().AsMemory();
                         truncationBuffer.Clear();
                     }
-
-                    Memory<byte> buffer = receiveBuffer.AsMemory(0, receiveBuffer.Length);
-
-                    int eomIndex;
-                    while ((eomIndex = buffer.Span.IndexOf(eomBytes)) >= 0)
+                    else
                     {
-                        // Extract message up to EOM
-                        Memory<byte> message = buffer[..eomIndex];
+                        buffer = receiveBuffer.AsMemory(0, received);
+                    }
+
+                    int messageLength;
+                    while (buffer.Span.Length > prefixLength && (messageLength = BitConverter.ToUInt16(buffer.Span)) <= buffer.Span.Length - (prefixLength + EomLength))
+                    {
+                        if (messageLength > ReadBufferSize)
+                        {
+                            Debug.WriteLine("Could not identify message length. Ignoring.");
+                            buffer = buffer[(messageLength + EomLength + prefixLength)..];
+                            continue;
+                        }
+
+                        Memory<byte> message = buffer[prefixLength..(messageLength + EomLength + prefixLength)];
+
+                        if (!message.Span.EndsWith(eomBytes))
+                        {
+                            Debug.WriteLine("Message end delimiter missing. Ignoring.");
+                            buffer = buffer[(messageLength + EomLength + prefixLength)..];
+                            continue;
+                        }
+
+                        message = message[..^EomLength];
 
                         if (Protocol == Protocol.Udp)
                         {
@@ -293,10 +291,7 @@ namespace SimpleNetworking.Client
                                 Debug.WriteLine($"Packet loss detected. Client skipping packet {sequenceNumber}. " +
                                     $"Waiting for packet: {lastSequenceNumber + 1}");
 
-                                buffer = buffer[(eomIndex + eomBytes.Length)..];
-
-                                if (sequenceNumber > lastSequenceNumber)
-                                    lastSequenceNumber = sequenceNumber;
+                                buffer = buffer[(messageLength + eomBytes.Length + prefixLength)..];
 
                                 continue;
                             }
@@ -305,8 +300,8 @@ namespace SimpleNetworking.Client
                         }
 
                         // Invoke message received event
-                        OnMessageReceived?.Invoke(new MessageReceivedEventArgs(message.ToArray(), RemoteEndPoint));
-                        buffer = buffer[(eomIndex + eomBytes.Length)..];
+                        OnMessageReceived?.Invoke(new MessageReceivedEventArgs(message.ToArray(), (IPEndPoint)client.RemoteEndPoint!));
+                        buffer = buffer[(messageLength + eomBytes.Length + prefixLength)..];
                     }
 
                     // Remaining bytes are part of the next message or are truncated
@@ -315,6 +310,8 @@ namespace SimpleNetworking.Client
                         truncationBuffer.AddRange(buffer.ToArray());
                         Debug.WriteLine($"Truncated on client: {Encoding.UTF8.GetString(truncationBuffer.ToArray())}.");
                     }
+
+                    ArrayPool<byte>.Shared.Return(receiveBuffer);
                 }
             }
             catch (OperationCanceledException)
