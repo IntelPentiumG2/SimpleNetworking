@@ -1,5 +1,5 @@
-﻿using System.Buffers;
-using SimpleNetworking.EventArgs;
+﻿using SimpleNetworking.EventArgs;
+using System.Buffers;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -256,7 +256,7 @@ namespace SimpleNetworking.Server
                             continue;
                         }
 
-                        Memory<byte> message = buffer[prefixLength..(messageLength + EomLength + prefixLength)];
+                        Memory<byte> message = buffer[prefixLength..(messageLength + prefixLength + EomLength)];
 
                         if (!message.Span.EndsWith(eomBytes))
                         {
@@ -270,8 +270,7 @@ namespace SimpleNetworking.Server
                         if (socket.ProtocolType == ProtocolType.Udp)
                         {
                             byte lastSequenceNumber = clientLastSequenceNumbers![result!.Value.RemoteEndPoint];
-                            byte sequenceNumber = message.Span[0];
-                            message = message[1..];
+                            byte sequenceNumber = buffer.Span[2];
 
                             if (sequenceNumber != lastSequenceNumber + 1
                                 && !(sequenceNumber == 0 && lastSequenceNumber == 255))
